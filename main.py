@@ -10,14 +10,76 @@ Features:
 - Real-time market data streaming via WebSocket/MQTT
 - Admin endpoints for token management
 """
+import logging
+import sys
+import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from config import get_settings
 from dnse_client import close_dnse_client
 from routers import admin, trading, market_data
 from market_data_client import close_market_data_client
+
+
+# ============================================================================
+# LOGGING CONFIGURATION
+# ============================================================================
+
+def setup_logging():
+    """Configure logging with colored output and detailed formatting."""
+
+    # Define log format
+    log_format = (
+        '%(asctime)s | %(levelname)-8s | %(name)-25s | '
+        '%(funcName)-20s | Line:%(lineno)-4d | %(message)s'
+    )
+
+    # Create formatter
+    formatter = logging.Formatter(
+        log_format,
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+
+    # Remove existing handlers
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.DEBUG)
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+
+    # File handler - all logs
+    file_handler = logging.FileHandler('dnse_backend.log', encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
+
+    # File handler - errors only
+    error_handler = logging.FileHandler('dnse_errors.log', encoding='utf-8')
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(formatter)
+    root_logger.addHandler(error_handler)
+
+    # Set specific loggers
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.error").setLevel(logging.INFO)
+
+    return logging.getLogger(__name__)
+
+
+# Setup logging
+logger = setup_logging()
+logger.info("=" * 80)
+logger.info("DNSE Trading Backend - Logging Initialized")
+logger.info("=" * 80)
 
 
 @asynccontextmanager
@@ -27,17 +89,43 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown events.
     """
     # Startup
-    settings = get_settings()
-    print(f"🚀 Starting DNSE Trading Backend")
-    print(f"📊 Account: {settings.DNSE_ACCOUNT_NO}")
-    print(f"🔗 API: {settings.API_BASE_URL}")
+    logger.info("=" * 80)
+    logger.info("🚀 STARTING DNSE TRADING BACKEND")
+    logger.info("=" * 80)
+
+    try:
+        settings = get_settings()
+        logger.info(f"📊 Account Number: {settings.DNSE_ACCOUNT_NO}")
+        logger.info(f"🔗 API Base URL: {settings.API_BASE_URL}")
+        logger.info(f"⏰ JWT Expiration: {settings.JWT_EXPIRATION_HOURS} hours")
+        logger.info(f"🔑 Trading Token: {'*' * 10}{settings.TRADING_TOKEN[-4:] if len(settings.TRADING_TOKEN) > 4 else '****'}")
+        logger.info("✅ Configuration loaded successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to load configuration: {e}", exc_info=True)
+        raise
 
     yield
 
     # Shutdown
-    print("🛑 Shutting down DNSE Trading Backend")
-    await close_dnse_client()
-    close_market_data_client()
+    logger.info("=" * 80)
+    logger.info("🛑 SHUTTING DOWN DNSE TRADING BACKEND")
+    logger.info("=" * 80)
+
+    try:
+        logger.info("Closing DNSE client...")
+        await close_dnse_client()
+        logger.info("✅ DNSE client closed")
+    except Exception as e:
+        logger.error(f"❌ Error closing DNSE client: {e}", exc_info=True)
+
+    try:
+        logger.info("Closing market data client...")
+        close_market_data_client()
+        logger.info("✅ Market data client closed")
+    except Exception as e:
+        logger.error(f"❌ Error closing market data client: {e}", exc_info=True)
+
+    logger.info("👋 Shutdown complete")
 
 
 # Initialize FastAPI app

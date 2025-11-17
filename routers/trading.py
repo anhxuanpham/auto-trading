@@ -2,6 +2,7 @@
 Trading endpoints for order placement and portfolio management.
 Includes regular orders, conditional orders, and portfolio tracking.
 """
+import logging
 from typing import Optional
 from fastapi import APIRouter, HTTPException, status, Query
 
@@ -17,6 +18,7 @@ from schemas import (
     ConditionalOrderCreateResponse
 )
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/trading", tags=["Trading"])
 
@@ -53,6 +55,10 @@ async def place_order(order: PlaceOrderRequest) -> OrderDetail:
 
     **Returns:** Complete order details with order ID, status, execution info.
     """
+    logger.info("=" * 80)
+    logger.info(f"🌐 API Endpoint: POST /trading/orders")
+    logger.info(f"Order request: {order.side} {order.symbol} | Qty: {order.quantity} | Price: {order.price} | Type: {order.orderType}")
+
     client = get_dnse_client()
     settings = get_settings()
 
@@ -63,10 +69,15 @@ async def place_order(order: PlaceOrderRequest) -> OrderDetail:
     )
 
     try:
-        return await client.place_order(payload)
-    except HTTPException:
+        result = await client.place_order(payload)
+        logger.info(f"✅ API Response: Order placed successfully | Order ID: {result.id}")
+        logger.info("=" * 80)
+        return result
+    except HTTPException as e:
+        logger.error(f"❌ API Error: {e.status_code} - {e.detail}", exc_info=True)
         raise
     except Exception as e:
+        logger.error(f"❌ Unexpected error placing order: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to place order: {str(e)}"
@@ -88,13 +99,19 @@ async def get_orders(account_no: Optional[str] = None) -> list[OrderDetail]:
 
     **Returns:** List of all orders with complete details including fill information.
     """
+    logger.info(f"🌐 API Endpoint: GET /trading/orders | Account: {account_no or 'default'}")
+
     client = get_dnse_client()
 
     try:
-        return await client.get_orders(account_no)
-    except HTTPException:
+        result = await client.get_orders(account_no)
+        logger.info(f"✅ API Response: Retrieved {len(result)} orders")
+        return result
+    except HTTPException as e:
+        logger.error(f"❌ API Error: {e.status_code} - {e.detail}", exc_info=True)
         raise
     except Exception as e:
+        logger.error(f"❌ Unexpected error getting orders: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get orders: {str(e)}"
@@ -122,13 +139,19 @@ async def get_order_by_id(
 
     **Returns:** Complete order information including execution details.
     """
+    logger.info(f"🌐 API Endpoint: GET /trading/orders/{order_id} | Account: {account_no or 'default'}")
+
     client = get_dnse_client()
 
     try:
-        return await client.get_order_by_id(order_id, account_no)
-    except HTTPException:
+        result = await client.get_order_by_id(order_id, account_no)
+        logger.info(f"✅ API Response: Order details retrieved | Symbol: {result.symbol} | Status: {result.orderStatus}")
+        return result
+    except HTTPException as e:
+        logger.error(f"❌ API Error: {e.status_code} - {e.detail}", exc_info=True)
         raise
     except Exception as e:
+        logger.error(f"❌ Unexpected error getting order: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get order: {str(e)}"
@@ -157,13 +180,19 @@ async def cancel_order(
     **Returns:** Updated order information after cancellation.
     **Note:** Only orders with status 'new' or 'partiallyFilled' can be cancelled.
     """
+    logger.info(f"🌐 API Endpoint: DELETE /trading/orders/{order_id} | Account: {account_no or 'default'}")
+
     client = get_dnse_client()
 
     try:
-        return await client.cancel_order(order_id, account_no)
-    except HTTPException:
+        result = await client.cancel_order(order_id, account_no)
+        logger.info(f"✅ API Response: Order cancelled | New status: {result.orderStatus}")
+        return result
+    except HTTPException as e:
+        logger.error(f"❌ API Error: {e.status_code} - {e.detail}", exc_info=True)
         raise
     except Exception as e:
+        logger.error(f"❌ Unexpected error cancelling order: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to cancel order: {str(e)}"
@@ -203,13 +232,19 @@ async def get_portfolio(account_no: Optional[str] = None) -> list[Deal]:
     - **accumulateQuantity**: Total quantity accumulated
     - **tradeQuantity**: Quantity available for trading
     """
+    logger.info(f"🌐 API Endpoint: GET /trading/portfolio | Account: {account_no or 'default'}")
+
     client = get_dnse_client()
 
     try:
-        return await client.get_deals(account_no)
-    except HTTPException:
+        result = await client.get_deals(account_no)
+        logger.info(f"✅ API Response: Retrieved {len(result)} positions")
+        return result
+    except HTTPException as e:
+        logger.error(f"❌ API Error: {e.status_code} - {e.detail}", exc_info=True)
         raise
     except Exception as e:
+        logger.error(f"❌ Unexpected error getting portfolio: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get portfolio: {str(e)}"
@@ -271,13 +306,22 @@ async def place_conditional_order(order: ConditionalOrderRequest) -> Conditional
 
     **Returns:** Conditional order ID.
     """
+    logger.info("=" * 80)
+    logger.info(f"🌐 API Endpoint: POST /trading/conditional-orders")
+    logger.info(f"Conditional order request: {order.symbol} | Condition: {order.condition} | Stop Price: {order.stopPrice}")
+
     client = get_dnse_client()
 
     try:
-        return await client.place_conditional_order(order)
-    except HTTPException:
+        result = await client.place_conditional_order(order)
+        logger.info(f"✅ API Response: Conditional order placed | Order ID: {result.orderId}")
+        logger.info("=" * 80)
+        return result
+    except HTTPException as e:
+        logger.error(f"❌ API Error: {e.status_code} - {e.detail}", exc_info=True)
         raise
     except Exception as e:
+        logger.error(f"❌ Unexpected error placing conditional order: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to place conditional order: {str(e)}"
@@ -317,10 +361,12 @@ async def get_conditional_orders(
 
     **Returns:** Paginated list of conditional orders with metadata.
     """
+    logger.info(f"🌐 API Endpoint: GET /trading/conditional-orders | Symbol: {symbol or 'All'} | Daily: {daily}")
+
     client = get_dnse_client()
 
     try:
-        return await client.get_conditional_orders(
+        result = await client.get_conditional_orders(
             account_no=account_no,
             daily=daily,
             from_date=from_date,
@@ -331,9 +377,14 @@ async def get_conditional_orders(
             symbol=symbol,
             market_id=market_id
         )
-    except HTTPException:
+        order_count = len(result.get("content", [])) if isinstance(result, dict) else 0
+        logger.info(f"✅ API Response: Retrieved {order_count} conditional orders")
+        return result
+    except HTTPException as e:
+        logger.error(f"❌ API Error: {e.status_code} - {e.detail}", exc_info=True)
         raise
     except Exception as e:
+        logger.error(f"❌ Unexpected error getting conditional orders: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get conditional orders: {str(e)}"
@@ -355,13 +406,19 @@ async def get_conditional_order_by_id(order_id: str) -> ConditionalOrderDetail:
 
     **Returns:** Complete conditional order information.
     """
+    logger.info(f"🌐 API Endpoint: GET /trading/conditional-orders/{order_id}")
+
     client = get_dnse_client()
 
     try:
-        return await client.get_conditional_order_by_id(order_id)
-    except HTTPException:
+        result = await client.get_conditional_order_by_id(order_id)
+        logger.info(f"✅ API Response: Conditional order retrieved | Symbol: {result.symbol} | Status: {result.status}")
+        return result
+    except HTTPException as e:
+        logger.error(f"❌ API Error: {e.status_code} - {e.detail}", exc_info=True)
         raise
     except Exception as e:
+        logger.error(f"❌ Unexpected error getting conditional order: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get conditional order: {str(e)}"
@@ -384,13 +441,19 @@ async def cancel_conditional_order(order_id: str) -> ConditionalOrderCreateRespo
     **Returns:** Confirmation with order ID.
     **Note:** Only orders with status 'NEW' or 'ACTIVATED' can be cancelled.
     """
+    logger.info(f"🌐 API Endpoint: PATCH /trading/conditional-orders/{order_id}/cancel")
+
     client = get_dnse_client()
 
     try:
-        return await client.cancel_conditional_order(order_id)
-    except HTTPException:
+        result = await client.cancel_conditional_order(order_id)
+        logger.info(f"✅ API Response: Conditional order cancelled | Order ID: {result.orderId}")
+        return result
+    except HTTPException as e:
+        logger.error(f"❌ API Error: {e.status_code} - {e.detail}", exc_info=True)
         raise
     except Exception as e:
+        logger.error(f"❌ Unexpected error cancelling conditional order: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to cancel conditional order: {str(e)}"
