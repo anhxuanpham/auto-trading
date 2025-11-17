@@ -11,8 +11,11 @@ from config import get_settings
 from schemas import (
     LoginRequest,
     PlaceOrderPayload,
-    Order,
-    Deal
+    OrderDetail,
+    Deal,
+    ConditionalOrderRequest,
+    ConditionalOrderDetail,
+    ConditionalOrderCreateResponse
 )
 
 
@@ -184,9 +187,9 @@ class DNSEClient:
                 detail=f"Request error: {str(e)}"
             )
 
-    # Trading Operations
+    # Trading Operations - Regular Orders
 
-    async def place_order(self, order: PlaceOrderPayload) -> Dict[str, Any]:
+    async def place_order(self, order: PlaceOrderPayload) -> OrderDetail:
         """
         Place a new order.
 
@@ -194,15 +197,16 @@ class DNSEClient:
             order: Order details including accountNo
 
         Returns:
-            Dict[str, Any]: Order response from API
+            OrderDetail: Complete order information from API
         """
-        return await self._request(
+        response = await self._request(
             method="POST",
             endpoint="/order-service/v2/orders",
             json_data=order.model_dump()
         )
+        return OrderDetail(**response)
 
-    async def get_orders(self, account_no: Optional[str] = None) -> list[Order]:
+    async def get_orders(self, account_no: Optional[str] = None) -> list[OrderDetail]:
         """
         Get list of orders for an account.
 
@@ -210,7 +214,7 @@ class DNSEClient:
             account_no: Account number (defaults to config value)
 
         Returns:
-            list[Order]: List of orders
+            list[OrderDetail]: List of orders
         """
         if account_no is None:
             account_no = self.settings.DNSE_ACCOUNT_NO
@@ -229,7 +233,59 @@ class DNSEClient:
         else:
             orders_data = []
 
-        return [Order(**order) for order in orders_data]
+        return [OrderDetail(**order) for order in orders_data]
+
+    async def get_order_by_id(
+        self,
+        order_id: int,
+        account_no: Optional[str] = None
+    ) -> OrderDetail:
+        """
+        Get details of a specific order.
+
+        Args:
+            order_id: Order ID
+            account_no: Account number (defaults to config value)
+
+        Returns:
+            OrderDetail: Complete order information
+        """
+        if account_no is None:
+            account_no = self.settings.DNSE_ACCOUNT_NO
+
+        response = await self._request(
+            method="GET",
+            endpoint=f"/order-service/v2/orders/{order_id}",
+            params={"accountNo": account_no}
+        )
+        return OrderDetail(**response)
+
+    async def cancel_order(
+        self,
+        order_id: int,
+        account_no: Optional[str] = None
+    ) -> OrderDetail:
+        """
+        Cancel an existing order.
+
+        Args:
+            order_id: Order ID
+            account_no: Account number (defaults to config value)
+
+        Returns:
+            OrderDetail: Updated order information after cancellation
+        """
+        if account_no is None:
+            account_no = self.settings.DNSE_ACCOUNT_NO
+
+        response = await self._request(
+            method="DELETE",
+            endpoint=f"/order-service/v2/orders/{order_id}",
+            params={"accountNo": account_no}
+        )
+        return OrderDetail(**response)
+
+    # Portfolio/Deals Operations
 
     async def get_deals(self, account_no: Optional[str] = None) -> list[Deal]:
         """
@@ -259,6 +315,121 @@ class DNSEClient:
             deals_data = []
 
         return [Deal(**deal) for deal in deals_data]
+
+    # Conditional Orders Operations
+
+    async def place_conditional_order(
+        self,
+        order: ConditionalOrderRequest
+    ) -> ConditionalOrderCreateResponse:
+        """
+        Place a conditional order.
+
+        Args:
+            order: Conditional order details
+
+        Returns:
+            ConditionalOrderCreateResponse: Response with conditional order ID
+        """
+        response = await self._request(
+            method="POST",
+            endpoint="/conditional-order-api/v1/orders",
+            json_data=order.model_dump()
+        )
+        return ConditionalOrderCreateResponse(**response)
+
+    async def get_conditional_orders(
+        self,
+        account_no: Optional[str] = None,
+        daily: bool = False,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        page: int = 1,
+        size: int = 10000,
+        status: Optional[list[str]] = None,
+        symbol: Optional[str] = None,
+        market_id: str = "UNDERLYING"
+    ) -> Dict[str, Any]:
+        """
+        Get list of conditional orders.
+
+        Args:
+            account_no: Account number (defaults to config value)
+            daily: Get today's orders only (default: False)
+            from_date: Start date (yyyy-MM-dd)
+            to_date: End date (yyyy-MM-dd)
+            page: Page number
+            size: Items per page
+            status: List of statuses to filter (NEW/ACTIVATED/REJECTED/etc.)
+            symbol: Filter by symbol
+            market_id: UNDERLYING (stocks) or DERIVATIVES
+
+        Returns:
+            Dict with 'content' (list of orders) and pagination info
+        """
+        if account_no is None:
+            account_no = self.settings.DNSE_ACCOUNT_NO
+
+        params: Dict[str, Any] = {
+            "accountNo": account_no,
+            "daily": daily,
+            "page": page,
+            "size": size,
+            "marketId": market_id
+        }
+
+        if from_date:
+            params["from"] = from_date
+        if to_date:
+            params["to"] = to_date
+        if status:
+            params["status"] = status
+        if symbol:
+            params["symbol"] = symbol
+
+        return await self._request(
+            method="GET",
+            endpoint="/conditional-order-api/v1/orders",
+            params=params
+        )
+
+    async def get_conditional_order_by_id(
+        self,
+        order_id: str
+    ) -> ConditionalOrderDetail:
+        """
+        Get details of a specific conditional order.
+
+        Args:
+            order_id: Conditional order ID
+
+        Returns:
+            ConditionalOrderDetail: Complete conditional order information
+        """
+        response = await self._request(
+            method="GET",
+            endpoint=f"/conditional-order-api/v1/orders/{order_id}"
+        )
+        return ConditionalOrderDetail(**response)
+
+    async def cancel_conditional_order(
+        self,
+        order_id: str
+    ) -> ConditionalOrderCreateResponse:
+        """
+        Cancel a conditional order.
+
+        Args:
+            order_id: Conditional order ID
+
+        Returns:
+            ConditionalOrderCreateResponse: Response with order ID
+        """
+        response = await self._request(
+            method="PATCH",
+            endpoint=f"/conditional-order-api/v1/orders/{order_id}/cancel"
+        )
+        return ConditionalOrderCreateResponse(**response)
 
 
 # Global client instance
