@@ -82,6 +82,7 @@ async def get_investor_id() -> str:
     Raises:
         HTTPException: If unable to get investor ID
     """
+    logger.info("📡 Fetching investor ID from DNSE user API")
     try:
         dnse_client = get_dnse_client()
 
@@ -90,6 +91,7 @@ async def get_investor_id() -> str:
         jwt_token = headers["Authorization"].replace("Bearer ", "")
 
         # Call user info API
+        logger.debug(f"Calling user-service/api/me endpoint")
         client = await dnse_client._ensure_client()
         response = await client.get(
             f"{dnse_client.base_url}/user-service/api/me",
@@ -100,15 +102,17 @@ async def get_investor_id() -> str:
 
         investor_id = user_data.get("investorId")
         if not investor_id:
+            logger.error("❌ No investorId found in user info response")
             raise HTTPException(
                 status_code=500,
                 detail="No investorId in user info"
             )
 
+        logger.info(f"✅ Investor ID retrieved: {investor_id}")
         return investor_id
 
     except Exception as e:
-        logger.error(f"Failed to get investor ID: {e}")
+        logger.error(f"❌ Failed to get investor ID: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get investor ID: {str(e)}"
@@ -161,10 +165,16 @@ async def initialize_market_data(request: InitializeRequest = InitializeRequest(
 
     **Returns:** Connection status and client ID.
     """
+    logger.info("=" * 80)
+    logger.info("🌐 API Endpoint: POST /market-data/initialize")
+    logger.info(f"Auto-connect: {request.auto_connect}")
+
     try:
         # Check if already initialized
         existing_client = get_market_data_client()
         if existing_client and existing_client.is_connected():
+            logger.info(f"✅ Market data already initialized | Client ID: {existing_client.client_id}")
+            logger.info("=" * 80)
             return InitializeResponse(
                 success=True,
                 message="Market data already initialized",
@@ -179,6 +189,7 @@ async def initialize_market_data(request: InitializeRequest = InitializeRequest(
         jwt_token = headers["Authorization"].replace("Bearer ", "")
 
         # Create market data client
+        logger.info(f"🔧 Creating MarketDataClient | Investor ID: {investor_id}")
         md_client = MarketDataClient(
             investor_id=investor_id,
             token=jwt_token,
@@ -187,15 +198,21 @@ async def initialize_market_data(request: InitializeRequest = InitializeRequest(
 
         # Connect if requested
         if request.auto_connect:
+            logger.info("🔌 Connecting to MQTT broker...")
             success = md_client.connect()
             if not success:
+                logger.error("❌ Failed to connect to market data feed")
                 raise HTTPException(
                     status_code=500,
                     detail="Failed to connect to market data feed"
                 )
+            logger.info("✅ MQTT connection established")
 
         # Store global instance
         set_market_data_client(md_client)
+
+        logger.info(f"✅ API Response: Market data initialized | Client ID: {md_client.client_id}")
+        logger.info("=" * 80)
 
         return InitializeResponse(
             success=True,
@@ -204,10 +221,11 @@ async def initialize_market_data(request: InitializeRequest = InitializeRequest(
             client_id=md_client.client_id
         )
 
-    except HTTPException:
+    except HTTPException as e:
+        logger.error(f"❌ API Error: {e.status_code} - {e.detail}", exc_info=True)
         raise
     except Exception as e:
-        logger.error(f"Initialization error: {e}")
+        logger.error(f"❌ Initialization error: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to initialize market data: {str(e)}"
@@ -255,14 +273,20 @@ async def subscribe_market_data(subscription: MarketDataSubscription) -> Subscri
 
     **Returns:** Subscription confirmation.
     """
+    logger.info("=" * 80)
+    logger.info("🌐 API Endpoint: POST /market-data/subscribe")
+    logger.info(f"Subscription: {subscription.messageType} | Symbol: {subscription.symbol or 'N/A'} | Index: {subscription.indexName or 'N/A'}")
+
     client = get_market_data_client()
     if not client:
+        logger.error("❌ Market data client not initialized")
         raise HTTPException(
             status_code=400,
             detail="Market data not initialized. Call /initialize first."
         )
 
     if not client.is_connected():
+        logger.error("❌ Market data client not connected")
         raise HTTPException(
             status_code=503,
             detail="Market data client not connected"
@@ -283,26 +307,31 @@ async def subscribe_market_data(subscription: MarketDataSubscription) -> Subscri
             kwargs["productGroupId"] = subscription.productGroupId
 
         # Subscribe
+        logger.info(f"📡 Subscribing to MQTT topic...")
         success = client.subscribe(subscription.messageType, **kwargs)
 
         if success:
             from market_data_schemas import get_topic
             topic = get_topic(subscription.messageType, **kwargs)
+            logger.info(f"✅ API Response: Subscribed successfully | Topic: {topic}")
+            logger.info("=" * 80)
             return SubscribeResponse(
                 success=True,
                 message=f"Subscribed to {subscription.messageType}",
                 topic=topic
             )
         else:
+            logger.error("❌ Subscription failed")
             raise HTTPException(
                 status_code=500,
                 detail="Subscription failed"
             )
 
     except ValueError as e:
+        logger.error(f"❌ Invalid subscription parameters: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Subscribe error: {e}")
+        logger.error(f"❌ Subscribe error: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Subscription error: {str(e)}"
@@ -319,9 +348,11 @@ async def get_market_data_status() -> dict:
     - subscribed_topics: List of active subscriptions
     - active_websockets: Number of WebSocket clients
     """
+    logger.debug("🌐 API Endpoint: GET /market-data/status")
     client = get_market_data_client()
 
     if not client:
+        logger.debug("Market data client not initialized")
         return {
             "initialized": False,
             "connected": False,
@@ -329,13 +360,15 @@ async def get_market_data_status() -> dict:
             "active_websockets": len(connection_manager.active_connections)
         }
 
-    return {
+    status = {
         "initialized": True,
         "connected": client.is_connected(),
         "client_id": client.client_id,
         "subscribed_topics": client.get_subscribed_topics(),
         "active_websockets": len(connection_manager.active_connections)
     }
+    logger.debug(f"Market data status: {status}")
+    return status
 
 
 # ============================================================================
