@@ -6,7 +6,8 @@ A production-ready FastAPI backend for algorithmic trading via DNSE.
 Features:
 - Hot-reload token updates without server restart
 - Automatic JWT authentication with expiration handling
-- Trading operations (orders, portfolio)
+- Trading operations (regular orders, conditional orders, portfolio)
+- Real-time market data streaming via WebSocket/MQTT
 - Admin endpoints for token management
 """
 from contextlib import asynccontextmanager
@@ -15,7 +16,8 @@ from fastapi.responses import JSONResponse
 
 from config import get_settings
 from dnse_client import close_dnse_client
-from routers import admin, trading
+from routers import admin, trading, market_data
+from market_data_client import close_market_data_client
 
 
 @asynccontextmanager
@@ -35,6 +37,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     print("🛑 Shutting down DNSE Trading Backend")
     await close_dnse_client()
+    close_market_data_client()
 
 
 # Initialize FastAPI app
@@ -49,6 +52,7 @@ app = FastAPI(
 # Register routers
 app.include_router(admin.router)
 app.include_router(trading.router)
+app.include_router(market_data.router)
 
 
 # Root endpoint
