@@ -25,6 +25,7 @@ from config import get_settings
 from dnse_client import close_dnse_client
 from routers import admin, trading, market_data
 from market_data_client import close_market_data_client
+from metrics import http_requests_total, http_request_duration_seconds, metrics_response
 
 
 # ============================================================================
@@ -168,6 +169,39 @@ logger.info(f"🔓 CORS enabled for origins: {allowed_origins}")
 
 
 # ============================================================================
+# REQUEST TRACKING MIDDLEWARE
+# ============================================================================
+
+@app.middleware("http")
+async def track_requests(request: Request, call_next):
+    """Track all HTTP requests with Prometheus metrics."""
+    start_time = time.time()
+
+    # Process request
+    response = await call_next(request)
+
+    # Calculate duration
+    duration = time.time() - start_time
+
+    # Track metrics
+    http_requests_total.labels(
+        method=request.method,
+        endpoint=request.url.path,
+        status=response.status_code
+    ).inc()
+
+    http_request_duration_seconds.labels(
+        method=request.method,
+        endpoint=request.url.path
+    ).observe(duration)
+
+    # Add custom header with request duration
+    response.headers["X-Process-Time"] = str(duration)
+
+    return response
+
+
+# ============================================================================
 # ROUTERS
 # ============================================================================
 
@@ -215,6 +249,38 @@ async def health_check() -> dict:
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
+
+
+# Prometheus metrics endpoint
+@app.get("/metrics", tags=["Monitoring"])
+async def metrics():
+    """
+    Prometheus metrics endpoint.
+
+    Returns metrics in Prometheus format for monitoring:
+    - http_requests_total: Total HTTP requests by method, endpoint, status
+    - http_request_duration_seconds: Request latency histogram
+    - orders_placed_total: Total orders placed by symbol, side, type
+    - orders_cancelled_total: Total orders cancelled
+    - websocket_connections_active: Active WebSocket connections
+    - mqtt_connection_status: MQTT connection status
+    - errors_total: Total errors by type and endpoint
+    - jwt_token_refreshes_total: JWT token refresh count
+
+    **Usage with Prometheus:**
+    ```yaml
+    scrape_configs:
+      - job_name: 'dnse-trading'
+        static_configs:
+          - targets: ['localhost:8000']
+    ```
+
+    **Example:**
+    ```bash
+    curl http://localhost:8000/metrics
+    ```
+    """
+    return metrics_response()
 
 
 # ============================================================================

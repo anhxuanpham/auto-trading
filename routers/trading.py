@@ -3,6 +3,7 @@ Trading endpoints for order placement and portfolio management.
 Includes regular orders, conditional orders, and portfolio tracking.
 """
 import logging
+import time
 from typing import Optional
 from fastapi import APIRouter, HTTPException, status, Query, Request
 from slowapi import Limiter
@@ -10,6 +11,7 @@ from slowapi.util import get_remote_address
 
 from config import get_settings
 from dnse_client import get_dnse_client
+from metrics import track_order_placed, track_order_cancelled, order_placement_duration_seconds
 from schemas import (
     PlaceOrderRequest,
     PlaceOrderPayload,
@@ -74,15 +76,45 @@ async def place_order(request: Request, order: PlaceOrderRequest) -> OrderDetail
         accountNo=settings.DNSE_ACCOUNT_NO
     )
 
+    # Track order placement timing
+    start_time = time.time()
+
     try:
         result = await client.place_order(payload)
+
+        # Track metrics
+        duration = time.time() - start_time
+        order_placement_duration_seconds.labels(
+            symbol=order.symbol,
+            side=order.side.value
+        ).observe(duration)
+
+        track_order_placed(
+            symbol=order.symbol,
+            side=order.side.value,
+            order_type=order.orderType.value,
+            status='success'
+        )
+
         logger.info(f"✅ API Response: Order placed successfully | Order ID: {result.id}")
         logger.info("=" * 80)
         return result
     except HTTPException as e:
+        track_order_placed(
+            symbol=order.symbol,
+            side=order.side.value,
+            order_type=order.orderType.value,
+            status='failed'
+        )
         logger.error(f"❌ API Error: {e.status_code} - {e.detail}", exc_info=True)
         raise
     except Exception as e:
+        track_order_placed(
+            symbol=order.symbol,
+            side=order.side.value,
+            order_type=order.orderType.value,
+            status='error'
+        )
         logger.error(f"❌ Unexpected error placing order: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -194,6 +226,10 @@ async def cancel_order(
 
     try:
         result = await client.cancel_order(order_id, account_no)
+
+        # Track cancellation metrics
+        track_order_cancelled(symbol=result.symbol)
+
         logger.info(f"✅ API Response: Order cancelled | New status: {result.orderStatus}")
         return result
     except HTTPException as e:

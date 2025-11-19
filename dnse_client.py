@@ -42,10 +42,21 @@ class DNSEClient:
         logger.info(f"🔧 DNSEClient initialized | Base URL: {self.base_url}")
 
     async def _ensure_client(self) -> httpx.AsyncClient:
-        """Ensure async client is initialized."""
+        """Ensure async client is initialized with optimized connection pool."""
         if self.client is None:
-            logger.debug("Creating new httpx.AsyncClient with 30s timeout")
-            self.client = httpx.AsyncClient(timeout=30.0)
+            logger.debug("Creating new httpx.AsyncClient with optimized settings")
+            # Configure connection pool limits for better performance
+            limits = httpx.Limits(
+                max_keepalive_connections=20,  # Keep 20 connections alive
+                max_connections=100,            # Max 100 concurrent connections
+                keepalive_expiry=30.0          # Keep connections alive for 30s
+            )
+            self.client = httpx.AsyncClient(
+                timeout=30.0,
+                limits=limits,
+                http2=True  # Enable HTTP/2 for better performance
+            )
+            logger.debug("✅ HTTP client configured: max_connections=100, keepalive=20, http2=enabled")
         return self.client
 
     async def close(self) -> None:
