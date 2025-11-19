@@ -67,6 +67,9 @@ class ConnectionManager:
 # Global connection manager
 connection_manager = ConnectionManager()
 
+# Global event loop reference (for thread-safe async calls)
+_event_loop: Optional[asyncio.AbstractEventLoop] = None
+
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -123,14 +126,22 @@ def market_data_callback(message_type: str, data: Dict[str, Any]):
     """
     Callback for market data messages.
     Broadcasts to all WebSocket clients.
+    Called from MQTT thread, so must use thread-safe async scheduling.
     """
     message = {
         "type": message_type,
         "data": data,
         "timestamp": data.get("_received_at")
     }
-    # Schedule broadcast in event loop
-    asyncio.create_task(connection_manager.broadcast(message))
+
+    # Schedule broadcast in event loop (thread-safe)
+    if _event_loop and _event_loop.is_running():
+        asyncio.run_coroutine_threadsafe(
+            connection_manager.broadcast(message),
+            _event_loop
+        )
+    else:
+        logger.warning("⚠️ No event loop available to broadcast message")
 
 
 # ============================================================================
@@ -412,6 +423,12 @@ async def websocket_endpoint(websocket: WebSocket):
     **Note:** You must call POST /market-data/initialize and POST /market-data/subscribe
     before messages will be streamed.
     """
+    # Set global event loop reference for thread-safe callbacks
+    global _event_loop
+    if _event_loop is None:
+        _event_loop = asyncio.get_event_loop()
+        logger.info(f"✅ Event loop set for market data broadcasting")
+
     await connection_manager.connect(websocket)
 
     try:
