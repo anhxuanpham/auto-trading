@@ -16,6 +16,10 @@ import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from config import get_settings
 from dnse_client import close_dnse_client
@@ -128,6 +132,9 @@ async def lifespan(app: FastAPI):
     logger.info("👋 Shutdown complete")
 
 
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address)
+
 # Initialize FastAPI app
 app = FastAPI(
     title="DNSE Lightspeed API Backend",
@@ -136,6 +143,33 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Add rate limiter to app state
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+# ============================================================================
+# MIDDLEWARE CONFIGURATION
+# ============================================================================
+
+# CORS middleware - Allow frontend to access API
+settings = get_settings()
+allowed_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",")]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+logger.info(f"🔓 CORS enabled for origins: {allowed_origins}")
+
+
+# ============================================================================
+# ROUTERS
+# ============================================================================
 
 # Register routers
 app.include_router(admin.router)
@@ -183,15 +217,57 @@ async def health_check() -> dict:
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
 
 
-# Global exception handler
+# ============================================================================
+# EXCEPTION HANDLERS
+# ============================================================================
+
 @app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    """Handle all unhandled exceptions."""
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Global exception handler - catches all unhandled exceptions.
+    Logs full error details but only returns safe message to client.
+    """
+    # Log full error with traceback
+    logger.error(
+        f"Unhandled exception: {type(exc).__name__}: {str(exc)}",
+        exc_info=True,
+        extra={
+            "path": request.url.path,
+            "method": request.method,
+            "client": request.client.host if request.client else "unknown"
+        }
+    )
+
+    # Return safe error to client (don't expose internals)
     return JSONResponse(
         status_code=500,
         content={
             "error": "Internal server error",
-            "detail": str(exc)
+            "message": "An unexpected error occurred. Please try again later.",
+            "timestamp": time.time()
+        }
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """
+    Handle FastAPI HTTPException - these are intentional errors.
+    """
+    logger.warning(
+        f"HTTP {exc.status_code}: {exc.detail}",
+        extra={
+            "path": request.url.path,
+            "method": request.method,
+            "status_code": exc.status_code
+        }
+    )
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": exc.detail,
+            "status_code": exc.status_code
         }
     )
 

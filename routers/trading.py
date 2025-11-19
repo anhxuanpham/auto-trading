@@ -4,7 +4,9 @@ Includes regular orders, conditional orders, and portfolio tracking.
 """
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException, status, Query
+from fastapi import APIRouter, HTTPException, status, Query, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from config import get_settings
 from dnse_client import get_dnse_client
@@ -22,13 +24,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/trading", tags=["Trading"])
 
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address)
+
 
 # ============================================================================
 # REGULAR ORDERS
 # ============================================================================
 
 @router.post("/orders", response_model=OrderDetail, status_code=status.HTTP_201_CREATED)
-async def place_order(order: PlaceOrderRequest) -> OrderDetail:
+@limiter.limit("10/minute")  # Max 10 orders per minute per IP
+async def place_order(request: Request, order: PlaceOrderRequest) -> OrderDetail:
     """
     Place a new order on DNSE.
 
@@ -159,7 +165,9 @@ async def get_order_by_id(
 
 
 @router.delete("/orders/{order_id}", response_model=OrderDetail)
+@limiter.limit("20/minute")  # Max 20 cancellations per minute per IP
 async def cancel_order(
+    request: Request,
     order_id: int,
     account_no: Optional[str] = None
 ) -> OrderDetail:
@@ -256,7 +264,8 @@ async def get_portfolio(account_no: Optional[str] = None) -> list[Deal]:
 # ============================================================================
 
 @router.post("/conditional-orders", response_model=ConditionalOrderCreateResponse, status_code=status.HTTP_201_CREATED)
-async def place_conditional_order(order: ConditionalOrderRequest) -> ConditionalOrderCreateResponse:
+@limiter.limit("5/minute")  # Max 5 conditional orders per minute per IP
+async def place_conditional_order(request: Request, order: ConditionalOrderRequest) -> ConditionalOrderCreateResponse:
     """
     Place a conditional order (stop order).
 

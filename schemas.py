@@ -5,7 +5,8 @@ Based on official DNSE Lightspeed API documentation.
 from enum import Enum
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+import re
 
 
 # Enums
@@ -79,12 +80,43 @@ class LoginResponse(BaseModel):
 # Order Schemas
 class PlaceOrderRequest(BaseModel):
     """Request to place a new order."""
-    symbol: str = Field(..., description="Stock symbol (e.g., 'VNM', 'HPG')")
+    symbol: str = Field(..., description="Stock symbol (e.g., 'VNM', 'HPG')", pattern=r"^[A-Z]{3}$")
     side: OrderSide = Field(..., description="Order side: NB (buy) or NS (sell)")
     orderType: OrderType = Field(..., description="Order type: LO, MP, MTL, ATC, ATO, MOK, MAK, PLO")
-    price: float = Field(..., description="Order price in VND (required even for market orders)")
-    quantity: float = Field(..., gt=0, description="Order quantity (must be positive)")
+    price: float = Field(..., gt=0, lt=1_000_000_000, description="Order price in VND (must be > 0 and < 1 billion)")
+    quantity: float = Field(..., gt=0, description="Order quantity (must be positive and multiple of 100)")
     loanPackageId: Optional[int] = Field(None, description="Loan package ID for margin trading")
+
+    @field_validator('symbol')
+    @classmethod
+    def validate_symbol(cls, v: str) -> str:
+        """Validate stock symbol format."""
+        v = v.upper().strip()
+        if not re.match(r'^[A-Z]{3}$', v):
+            raise ValueError('Symbol must be exactly 3 uppercase letters (e.g., VNM, HPG)')
+        return v
+
+    @field_validator('quantity')
+    @classmethod
+    def validate_quantity(cls, v: float) -> float:
+        """Validate quantity is positive and multiple of 100."""
+        if v <= 0:
+            raise ValueError('Quantity must be positive')
+        if v % 100 != 0:
+            raise ValueError('Quantity must be a multiple of 100')
+        if v > 10_000_000:
+            raise ValueError('Quantity must not exceed 10 million shares')
+        return v
+
+    @field_validator('price')
+    @classmethod
+    def validate_price(cls, v: float) -> float:
+        """Validate price is within reasonable bounds."""
+        if v <= 0:
+            raise ValueError('Price must be positive')
+        if v > 1_000_000_000:
+            raise ValueError('Price must not exceed 1 billion VND')
+        return v
 
     class Config:
         json_schema_extra = {

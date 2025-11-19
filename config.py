@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     # Optional settings with defaults
     API_BASE_URL: str = "https://api.dnse.com.vn"
     JWT_EXPIRATION_HOURS: int = 8
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3001"  # Comma-separated list
 
     model_config = SettingsConfigDict(
         env_file=".env",
