@@ -154,18 +154,21 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # ============================================================================
 
 # CORS middleware - Allow frontend to access API
-settings = get_settings()
-allowed_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",")]
+# TEMPORARILY DISABLED FOR LOCAL DEVELOPMENT
+# settings = get_settings()
+# allowed_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",")]
+#
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=allowed_origins,
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+#
+# logger.info(f"🔓 CORS enabled for origins: {allowed_origins}")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-logger.info(f"🔓 CORS enabled for origins: {allowed_origins}")
+logger.info("⚠️  CORS DISABLED - Local development mode")
 
 
 # ============================================================================
