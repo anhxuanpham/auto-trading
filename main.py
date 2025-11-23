@@ -23,7 +23,7 @@ from slowapi.errors import RateLimitExceeded
 
 from config import get_settings
 from dnse_client import close_dnse_client
-from routers import admin, trading, market_data
+from routers import admin, trading, market_data, ai
 from market_data_client import close_market_data_client
 from metrics import http_requests_total, http_request_duration_seconds, metrics_response
 
@@ -209,6 +209,7 @@ async def track_requests(request: Request, call_next):
 app.include_router(admin.router)
 app.include_router(trading.router)
 app.include_router(market_data.router)
+app.include_router(ai.router)
 
 
 # Root endpoint
@@ -226,6 +227,8 @@ async def root() -> dict:
         "endpoints": {
             "admin": "/admin",
             "trading": "/trading",
+            "market_data": "/market-data",
+            "ai": "/ai",
             "docs": "/docs",
             "redoc": "/redoc"
         }
